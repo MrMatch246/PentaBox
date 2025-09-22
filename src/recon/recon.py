@@ -187,7 +187,7 @@ class Recon(BaseClass):
         targets = load_lines(self.scope_file)
         if generate_leftover_chunks(targets, live_hosts, chunk_size, chunks_dir):
             self.masscan_leftover_finder = TmuxSession("masscan-leftover-finder")
-            self.masscan_leftover_finder.send_line(f"python3 {MASS_SCAN_RUNNER_PATH} --project {self.project_folder} --rate {rate}")
+            self.masscan_leftover_finder.send_line(f"{VENV_PYTHON_PATH} {MASS_SCAN_RUNNER_PATH} --project {self.project_folder} --rate {rate}")
             self.has_leftovers = True
 
         self.mark_stage_complete(2)
@@ -201,7 +201,7 @@ class Recon(BaseClass):
         autorecon_mass_scan_done = self.project_path / "recon" / "stage_3" / ".autorecon_masscan"
         if not autorecon_mass_scan_done.exists():
             self.autorecon_mass_scan = TmuxSession("autorecon-mass-scan")
-            cmd = f"python3 {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {hosts_file}"
+            cmd = f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {hosts_file}"
             self.autorecon_mass_scan.send_line(cmd)
             self.info(f"[*] AutoRecon started for Stage 1 hosts in tmux session: autorecon-mass-scan")
 
@@ -224,7 +224,7 @@ class Recon(BaseClass):
                 self.info(f"[*] Resuming Deep Scan of leftover hosts with AutoRecon.")
             tmux_session_leftover = "autorecon-leftover-scan"
             self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
-            self.autorecon_leftover_scan.send_line(f"python3 {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
+            self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
         with self.console().status(f"[byellow] Waiting for AutoRecon to complete for Stage 1 hosts..."):
             while not autorecon_mass_scan_done.exists():
                 time.sleep(10)

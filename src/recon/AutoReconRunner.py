@@ -1,6 +1,12 @@
 import argparse
 import subprocess
+import sys
 from pathlib import Path
+
+# Add the repo root to sys.path so `import src.*` works even when running the script directly
+REPO_ROOT = Path(__file__).resolve().parents[2]  # go two levels up from src/recon/
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from src.utils.pathing import AUTORECON_PY_PATH, VENV_PYTHON_PATH
 
