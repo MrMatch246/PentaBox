@@ -1,0 +1,3 @@
+requests
+pexpect
+rich~=14.1.0
