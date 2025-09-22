@@ -52,7 +52,8 @@ def install_requirements_if_needed():
     run_command([str(VENV_PYTHON_PATH), "-m", "pip", "install", "--upgrade", "pip"])
     run_command([str(VENV_PYTHON_PATH), "-m", "pip", "install", "-r", str(requirements_file)])
     # Install additional tools via apt-get
-    run_command(["sudo apt install -y seclists curl dnsrecon enum4linux feroxbuster gobuster impacket-scripts nbtscan nuclei nikto nmap onesixtyone oscanner redis-tools smbclient smbmap snmp sslscan sipvicious tnscmd10g whatweb"])
+    # sudo apt install seclists curl dnsrecon enum4linux feroxbuster gobuster impacket-scripts nbtscan nuclei nikto nmap onesixtyone oscanner redis-tools smbclient smbmap snmp sslscan sipvicious tnscmd10g whatweb
+    run_command(["sudo", "apt-get", "install", "-y", "seclists", "curl", "dnsrecon", "enum4linux", "feroxbuster", "gobuster", "impacket-scripts", "nbtscan", "nikto", "nmap", "onesixtyone", "oscanner", "redis-tools", "smbclient", "smbmap", "snmp", "sslscan", "sipvicious", "tnscmd10g", "whatweb"])
     #install nuclei and its templates
     run_command(["sudo", "apt-get", "install", "-y", "nuclei"])
 
