@@ -2,6 +2,9 @@ import argparse
 import subprocess
 from pathlib import Path
 
+from src.utils.pathing import AUTORECON_PY_PATH, VENV_PYTHON_PATH
+
+
 def run_autorecon(project_folder, hosts_file, config=None, targets=None, autorecon_config=None):
     project_folder = Path(project_folder)
     output_dir = project_folder / "recon/hosts"
@@ -19,7 +22,7 @@ def run_autorecon(project_folder, hosts_file, config=None, targets=None, autorec
         raise NotImplementedError("targets not implemented")
 
     # Run AutoRecon
-    autorecon_bin = ["/home/user/REPOS/AutoRecon/.venv/bin/python", "/home/user/REPOS/AutoRecon/autorecon.py"]  # Adjust this if AutoRecon is not in PATH
+    autorecon_bin = [VENV_PYTHON_PATH, AUTORECON_PY_PATH]  # Adjust this if AutoRecon is not in PATH
     autorecon_bin.extend(["-t", hosts_file, "-o", str(output_dir),])
     cmd = autorecon_bin
     if config:
