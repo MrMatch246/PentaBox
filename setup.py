@@ -51,6 +51,12 @@ def install_requirements_if_needed():
     print(f"[+] Ensuring requirements are installed")
     run_command([str(VENV_PYTHON_PATH), "-m", "pip", "install", "--upgrade", "pip"])
     run_command([str(VENV_PYTHON_PATH), "-m", "pip", "install", "-r", str(requirements_file)])
+    # Install additional tools via apt-get
+    run_command(["sudo apt install -y seclists curl dnsrecon enum4linux feroxbuster gobuster impacket-scripts nbtscan nuclei nikto nmap onesixtyone oscanner redis-tools smbclient smbmap snmp sslscan sipvicious tnscmd10g whatweb"])
+    #install nuclei and its templates
+    run_command(["sudo", "apt-get", "install", "-y", "nuclei"])
+
+    run_command(["nuclei", "-update-templates"])
 
 def main():
     print(f"[+] Setting up repository at {REPO_ROOT}")
