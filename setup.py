@@ -58,6 +58,7 @@ def install_requirements_if_needed():
     run_command(["sudo", "apt-get", "install", "-y", "nuclei"])
 
     run_command(["nuclei", "-update-templates"])
+    run_command(["sudo", "nuclei", "-update-templates"])
 
 def main():
     print(f"[+] Setting up repository at {REPO_ROOT}")
