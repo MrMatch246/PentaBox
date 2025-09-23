@@ -213,6 +213,6 @@ class PentaBox(BaseClass):
     def run_recon_phase(self):
         # Placeholder for running the recon phase 1
         self.info("Starting Recon Phase...")
-        recon = Recon(self.project_path)
+        recon = Recon(self.project_path,hosts_override=self.args.hosts)
         recon.run()
         self._phase_done(1)

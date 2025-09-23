@@ -82,11 +82,12 @@ from src.utils.tmux import TmuxSession
 
 
 class Recon(BaseClass):
-    def __init__(self,project_path, run_stage=None):
+    def __init__(self,project_path, run_stage=None,hosts_override=None):
         super().__init__(project_path)
         self.autorecon_leftover_scan = None
         self.masscan_leftover_finder = None
         self.autorecon_mass_scan = None
+        self.hosts_override = hosts_override
         #self.logger = self.convenient_logging.getLogger(name="recon", level="DEBUG")
         self.project_folder = Path(project_path).resolve()
         self.run_stage = run_stage
@@ -161,8 +162,16 @@ class Recon(BaseClass):
             f"sudo masscan -iL {self.scope_file} -p80,443 --ping --retries 1 --wait 10 --rate {rate} --open 2>/dev/null "
             f"| awk '{{print $6}}' | sort -u > {output_file}"
         )
-        with self.console().status("[byellow] Running Masscan for host discovery..."):
-            subprocess.run(cmd, shell=True, check=True)
+        if not self.hosts_override:
+            with self.console().status("[byellow] Running Masscan for host discovery..."):
+                subprocess.run(cmd, shell=True, check=True)
+        else:
+            self.info(f"[*] Using host override, skipping masscan. Writing to {output_file}")
+            with open(output_file, "w") as f:
+                with open(self.hosts_override, "r") as hf:
+                    hosts = [line.strip() for line in hf if line.strip()]
+                    f.write("\n".join(hosts) + "\n")
+
         self.mark_stage_complete(1)
 
 
@@ -177,7 +186,7 @@ class Recon(BaseClass):
         processed_dir.mkdir(parents=True, exist_ok=True)
 
         leftover_file = stage_dir / "found_quick_leftover_hosts.txt"
-        if leftover_file.exists():
+        if leftover_file.exists() or self.hosts_override:
             return
 
         chunk_size = self.stages.get("stage_2", {}).get("host_discovery", {}).get("chunk-size", 50)
@@ -214,20 +223,23 @@ class Recon(BaseClass):
             with self.console().status(f"[byellow] Waiting for completion of leftover host discovery: {leftover_file}"):
                 while not leftover_file.exists():
                     time.sleep(10)
+                #TODO add logic here to check if any hosts were found, if not skip the leftover scan, set self.has_leftovers to False
 
+        if self.has_leftovers:
+            autorecon_leftover_done = self.project_path / "recon" / "stage_3" / ".autorecon_leftover"
+            if not autorecon_leftover_done.exists() and leftover_file.exists():
+                if discovery:
+                    self.info(f"[*] Leftover host discovery completed. Starting leftover scan with AutoRecon.")
+                else:
+                    self.info(f"[*] Resuming Deep Scan of leftover hosts with AutoRecon.")
+                tmux_session_leftover = "autorecon-leftover-scan"
+                self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
+                self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
 
-        autorecon_leftover_done = self.project_path / "recon" / "stage_3" / ".autorecon_leftover"
-        if not autorecon_leftover_done.exists() and leftover_file.exists():
-            if discovery:
-                self.info(f"[*] Leftover host discovery completed. Starting leftover scan with AutoRecon.")
-            else:
-                self.info(f"[*] Resuming Deep Scan of leftover hosts with AutoRecon.")
-            tmux_session_leftover = "autorecon-leftover-scan"
-            self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
-            self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
         with self.console().status(f"[byellow] Waiting for AutoRecon to complete for Stage 1 hosts..."):
             while not autorecon_mass_scan_done.exists():
                 time.sleep(10)
+
         if self.has_leftovers:
             with self.console().status(f"[byellow] Waiting for AutoRecon to complete for leftover hosts..."):
                 while not autorecon_leftover_done.exists():
