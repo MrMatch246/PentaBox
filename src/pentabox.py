@@ -7,7 +7,7 @@ from pathlib import Path
 from rich.prompt import Confirm, Prompt
 
 from src.recon.recon import Recon
-from src.utils import is_in_tmux, get_internal_ip, get_external_ip, md5_hash
+from src.utils import get_internal_ip, get_external_ip, md5_hash, is_running_as_root
 from src.utils.base import BaseClass
 
 
@@ -35,10 +35,6 @@ class PentaBox(BaseClass):
     def _ensure_directories(self):
         self.project_path.mkdir(parents=True, exist_ok=True)
         (self.project_path / "logs").mkdir(exist_ok=True)
-
-    def _check_tmux(self):
-        if not self.args.bypass_tmux and not is_in_tmux():
-            self.critical("[bold red]This script should be run inside tmux. Use --bypass-tmux to skip this check.")
 
     def _phase_done(self, phase):
         (self.project_path / f".phase_{phase}").touch()
@@ -200,17 +196,33 @@ class PentaBox(BaseClass):
             else:
                 self.critical("Target change not confirmed. Exiting.")
 
-    def run(self):
+    def init_run(self):
         self._ensure_directories()
-        self._check_tmux()
+        self.warning(f"[bold orange1]Ensure you are running this inside a tmux session!![/]")
+        if not is_running_as_root():
+            self.error("[red]It's neccessary to run this script with root privileges!![/]")
         if not self.project_json.exists():
             self.initialize_new_project()
         else:
             self.load_existing_project()
         self.info(f"[green]Project [yellow]{self.project_path.name}[/] initialized successfully![/]")
-        self.run_recon_phase()
+
+    def run(self):
+        """Dispatch execution based on the chosen subcommand."""
+        if self.args.command == "recon":
+            self.run_recon_phase()
+        elif self.args.command == "exploit":
+            raise NotImplementedError("Exploit phase not implemented yet.")
+            self.run_exploit_phase()
+        elif self.args.command == "report":
+            raise NotImplementedError("Report phase not implemented yet.")
+            self.run_report_phase()
+        else:
+            raise ValueError(f"Unknown command: {self.args.command}")
+
 
     def run_recon_phase(self):
+        self.init_run()
         # Placeholder for running the recon phase 1
         self.info("Starting Recon Phase...")
         recon = Recon(self.project_path,hosts_override=self.args.hosts)

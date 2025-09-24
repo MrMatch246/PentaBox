@@ -159,11 +159,10 @@ class Recon(BaseClass):
         output_file = stage_dir / "masscan_hosts.txt"
         rate = self.stages.get("stage_1", {}).get("masscan", {}).get("rate", "10000")
         cmd = (
-            f"sudo masscan -iL {self.scope_file} -p80,443 --ping --retries 1 --wait 10 --rate {rate} --open 2>/dev/null "
-            f"| awk '{{print $6}}' | sort -u > {output_file}"
+            f"sudo masscan -iL {self.scope_file} -p80,443,22,25,21,53,119,139,445,143,161,162,389,636,3269,1025,1433,3306 --ping --retries 3 --wait 10 --rate {rate} --open 2>/dev/null | awk '{{print $6}}' | sort -u > {output_file}"
         )
         if not self.hosts_override:
-            with self.console().status("[byellow] Running Masscan for host discovery..."):
+            with self.console().status("[bold yellow] Running Masscan for host discovery..."):
                 subprocess.run(cmd, shell=True, check=True)
         else:
             self.info(f"[*] Using host override, skipping masscan. Writing to {output_file}")
@@ -199,7 +198,7 @@ class Recon(BaseClass):
             self.masscan_leftover_finder.send_line(f"{VENV_PYTHON_PATH} {MASS_SCAN_RUNNER_PATH} --project {self.project_folder} --rate {rate}")
             self.has_leftovers = True
 
-        self.mark_stage_complete(2)
+
 
     # Stage 3: Deep Scanning
     def run_stage_3(self):
@@ -220,9 +219,10 @@ class Recon(BaseClass):
         if not leftover_file.exists() and self.has_leftovers:
             self.info(f"[*] Waiting for completion of leftover host discovery: {leftover_file}")
             discovery = True
-            with self.console().status(f"[byellow] Waiting for completion of leftover host discovery: {leftover_file}"):
+            with self.console().status(f"[bold yellow] Waiting for completion of leftover host discovery: {leftover_file}"):
                 while not leftover_file.exists():
                     time.sleep(10)
+                self.mark_stage_complete(2)
                 #TODO add logic here to check if any hosts were found, if not skip the leftover scan, set self.has_leftovers to False
 
         if self.has_leftovers:
@@ -236,12 +236,12 @@ class Recon(BaseClass):
                 self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
                 self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
 
-        with self.console().status(f"[byellow] Waiting for AutoRecon to complete for Stage 1 hosts..."):
+        with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts..."):
             while not autorecon_mass_scan_done.exists():
                 time.sleep(10)
 
         if self.has_leftovers:
-            with self.console().status(f"[byellow] Waiting for AutoRecon to complete for leftover hosts..."):
+            with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for leftover hosts..."):
                 while not autorecon_leftover_done.exists():
                     time.sleep(10)
 

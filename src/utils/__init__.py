@@ -1,11 +1,12 @@
 import os
 import hashlib
-import socket
+import subprocess
+
 import requests
 
-def is_in_tmux():
-    return 'TMUX' in os.environ
 
+def is_running_as_root():
+    return os.geteuid() == 0  # UID 0 = root
 
 def md5_hash(file_path):
     hasher = hashlib.md5()
@@ -15,7 +16,7 @@ def md5_hash(file_path):
     return hasher.hexdigest()
 
 def get_internal_ip():
-    return socket.gethostbyname(socket.gethostname())
+    return subprocess.check_output(["hostname", "-I"], text=True).split()[0]
 
 def get_external_ip():
     while True:

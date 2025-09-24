@@ -29,7 +29,7 @@ def run_autorecon(project_folder, hosts_file, config=None, targets=None, autorec
 
     # Run AutoRecon
     autorecon_bin = [VENV_PYTHON_PATH, AUTORECON_PY_PATH]  # Adjust this if AutoRecon is not in PATH
-    autorecon_bin.extend(["-t", hosts_file, "-o", str(output_dir),])
+    autorecon_bin.extend(["-t", hosts_file, "-o", str(output_dir),"-vv"])
     cmd = autorecon_bin
     if config:
         cmd.extend(["--config", config])
