@@ -1,8 +1,8 @@
 #!/bin/bash -l
 
 # Usage: ./smb_enum.sh <target_ip/range> <credentials_file> [-o output_file] [nxc options]
-# Prints only successful SMB login lines (containing [+]) live
-# You can supply extra nxc smb options like --local-auth --users
+# Prints successful SMB login lines (containing [+]) and enumerates shares for each
+# Only actual share lines are printed (lines without [-], [*], [+])
 
 if [[ $# -lt 2 ]]; then
     echo "Usage: $0 <target_ip/range> <credentials_file> [-o output_file] [nxc options]"
@@ -13,7 +13,6 @@ TARGET="$1"
 CRED_FILE="$2"
 shift 2
 
-# Default output file
 OUTPUT_FILE="results.txt"
 
 # Parse optional -o flag
@@ -24,7 +23,6 @@ while [[ $# -gt 0 ]]; do
             OUTPUT_FILE="$1"
             ;;
         *)
-            # Remaining args are passed to nxc
             NXC_OPTIONS+=("$1")
             ;;
     esac
@@ -39,7 +37,6 @@ fi
 > "$OUTPUT_FILE"
 
 while IFS= read -r RAW_LINE || [[ -n "$RAW_LINE" ]]; do
-    # Normalize line: remove BOM, CR, leading/trailing spaces & NBSP
     LINE=$(echo -n "$RAW_LINE" \
            | sed 's/^\xEF\xBB\xBF//' \
            | tr -d '\r' \
@@ -47,7 +44,6 @@ while IFS= read -r RAW_LINE || [[ -n "$RAW_LINE" ]]; do
 
     [[ -z "$LINE" || "$LINE" != *:*:* ]] && continue
 
-    # Extract username and password (password may contain colons)
     USER=$(echo "$LINE" | cut -d: -f1 | sed -E 's/^[[:space:]\xC2\xA0]+//;s/[[:space:]\xC2\xA0]+$//')
     PASS=$(echo "$LINE" | cut -d: -f3- | sed -E 's/^[[:space:]\xC2\xA0]+//;s/[[:space:]\xC2\xA0]+$//')
 
@@ -55,9 +51,17 @@ while IFS= read -r RAW_LINE || [[ -n "$RAW_LINE" ]]; do
 
     echo "Testing user: '$USER' with password: '$PASS'"
 
-    # Run nxc smb with extra options, target IP/range, live output
-    nxc smb "$TARGET" -u "$USER" -p "$PASS" "${NXC_OPTIONS[@]}" 2>&1 \
-        | grep --line-buffered "[+]" | tee -a "$OUTPUT_FILE"
+    SUCCESS_OUTPUT=$(nxc smb "$TARGET" -u "$USER" -p "$PASS" "${NXC_OPTIONS[@]}" 2>&1 | grep "\[+\]")
+
+    if [[ -n "$SUCCESS_OUTPUT" ]]; then
+        # Print successes live
+        echo "$SUCCESS_OUTPUT" | tee -a "$OUTPUT_FILE"
+
+        # Enumerate shares and only print actual share lines
+        echo "[*] Enumerating shares for $USER on $TARGET" | tee -a "$OUTPUT_FILE"
+        nxc smb "$TARGET" -u "$USER" -p "$PASS" --shares "${NXC_OPTIONS[@]}" 2>&1 \
+            | grep -v "[-]" | grep -v "[*]" | grep -v "[+]" | grep -v "Running nxc against" | tee -a "$OUTPUT_FILE"
+    fi
 
 done < "$CRED_FILE"
 
