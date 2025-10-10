@@ -95,6 +95,7 @@ class Recon(BaseClass):
         self.stages_folder = self.recon_folder
         self.scope_file = self.project_folder / "scope" / "targets.txt"
         self.has_leftovers = False
+        self.total_masscan_hosts = None
 
         # Ensure recon directory exists
         self.recon_folder.mkdir(parents=True, exist_ok=True)
@@ -206,6 +207,11 @@ class Recon(BaseClass):
 
         # Start AutoRecon for Stage 1 hosts
         hosts_file = self.recon_folder / "stage_1/masscan_hosts.txt"
+        self.total_masscan_hosts = len(load_lines(hosts_file))
+        if not self.total_masscan_hosts:
+            self.critical(f"[!] No hosts found in {hosts_file}, skipping Stage 3.")
+
+
         autorecon_mass_scan_done = self.project_path / "recon" / "stage_3" / ".autorecon_masscan"
         if not autorecon_mass_scan_done.exists():
             self.autorecon_mass_scan = TmuxSession("autorecon-mass-scan")
@@ -236,8 +242,13 @@ class Recon(BaseClass):
                 self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
                 self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
 
-        with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts..."):
+        with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts...") as status:
+            finished_ips = []
             while not autorecon_mass_scan_done.exists():
+                new_finished_ips = self.autorecon_mass_scan.check_finished_scans()
+                finished_ips.extend(new_finished_ips)
+                if len(new_finished_ips) > 0:
+                    status.update(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts... ({len(finished_ips)}/{self.total_masscan_hosts} hosts completed during this run!)")
                 time.sleep(10)
 
         if self.has_leftovers:
@@ -246,4 +257,5 @@ class Recon(BaseClass):
                     time.sleep(10)
 
         self.mark_stage_complete(3)
+
 

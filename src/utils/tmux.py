@@ -1,9 +1,14 @@
 import subprocess
 import pexpect
+import re
 
 class TmuxSession:
     def __init__(self, session_name: str):
         self.session_name = session_name
+        self._seen_ips = set()  # keep track of IPs already returned
+        self._finished_re = re.compile(
+            r"\[\*\]\s+Finished scanning target\s+(\d{1,3}(?:\.\d{1,3}){3})\s+in\s+"
+        )
 
         # Check if session exists
         result = subprocess.run(
@@ -40,6 +45,7 @@ class TmuxSession:
             return None
 
     def kill(self):
+        """Send Ctrl-C multiple times to stop running processes."""
         self.send_ctrl_c(3)
 
     def interactive(self):
@@ -50,3 +56,30 @@ class TmuxSession:
         """Send Ctrl-C multiple times to the session."""
         for _ in range(count):
             subprocess.run(["tmux", "send-keys", "-t", self.session_name, "C-c"])
+
+
+    def recv_output(self, timeout=1):
+        """Grab any available output since last read."""
+        try:
+            self.child.expect(r".+", timeout=timeout)
+            return self.child.before + self.child.after
+        except (pexpect.TIMEOUT, pexpect.EOF):
+            return ""
+
+    def check_finished_scans(self, timeout=1):
+        """
+        Check recent tmux output for finished scan lines.
+        Returns a list of *new* IPs that have not been returned before.
+        """
+        output = self.recv_output(timeout=timeout)
+        new_ips = []
+
+        for line in output.splitlines():
+            match = self._finished_re.search(line)
+            if match:
+                ip = match.group(1)
+                if ip not in self._seen_ips:
+                    self._seen_ips.add(ip)
+                    new_ips.append(ip)
+
+        return new_ips
