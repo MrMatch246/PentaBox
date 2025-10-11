@@ -78,6 +78,9 @@ from src.utils.base import BaseClass
 from src.utils import *
 from src.utils.pathing import *
 from src.utils.tmux import TmuxSession
+from rich.table import Table
+from rich.live import Live
+from rich import box
 
 
 
@@ -201,61 +204,117 @@ class Recon(BaseClass):
 
 
 
-    # Stage 3: Deep Scanning
+
     def run_stage_3(self):
         self.info("[*] Running Stage 3: Deep Scanning with AutoRecon")
 
-        # Start AutoRecon for Stage 1 hosts
+        recon_stage3_path = self.project_path / "recon" / "stage_3"
+
+        # === Stage 1 Setup (Masscan Hosts) ===
         hosts_file = self.recon_folder / "stage_1/masscan_hosts.txt"
         self.total_masscan_hosts = len(load_lines(hosts_file))
         if not self.total_masscan_hosts:
             self.critical(f"[!] No hosts found in {hosts_file}, skipping Stage 3.")
+            return
 
-
-        autorecon_mass_scan_done = self.project_path / "recon" / "stage_3" / ".autorecon_masscan"
-        if not autorecon_mass_scan_done.exists():
+        autorecon_mass_done = recon_stage3_path / ".autorecon_masscan"
+        if not autorecon_mass_done.exists():
             self.autorecon_mass_scan = TmuxSession("autorecon-mass-scan")
             cmd = f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {hosts_file}"
             self.autorecon_mass_scan.send_line(cmd)
             self.info(f"[*] AutoRecon started for Stage 1 hosts in tmux session: autorecon-mass-scan")
 
-        # Watch for leftover hosts and launch second scan
+        # === Leftover Setup ===
         leftover_file = self.recon_folder / "stage_2/found_quick_leftover_hosts.txt"
-        discovery = False
-        if not leftover_file.exists() and self.has_leftovers:
-            self.info(f"[*] Waiting for completion of leftover host discovery: {leftover_file}")
-            discovery = True
-            with self.console().status(f"[bold yellow] Waiting for completion of leftover host discovery: {leftover_file}"):
-                while not leftover_file.exists():
-                    time.sleep(10)
-                self.mark_stage_complete(2)
-                #TODO add logic here to check if any hosts were found, if not skip the leftover scan, set self.has_leftovers to False
+        autorecon_leftover_done = recon_stage3_path / ".autorecon_leftover"
+        tmux_session_leftover = "autorecon-leftover-scan"
+        leftover_scan_started = False
+        leftover_discovery_done = leftover_file.exists()
 
-        if self.has_leftovers:
-            autorecon_leftover_done = self.project_path / "recon" / "stage_3" / ".autorecon_leftover"
-            if not autorecon_leftover_done.exists() and leftover_file.exists():
-                if discovery:
-                    self.info(f"[*] Leftover host discovery completed. Starting leftover scan with AutoRecon.")
-                else:
-                    self.info(f"[*] Resuming Deep Scan of leftover hosts with AutoRecon.")
-                tmux_session_leftover = "autorecon-leftover-scan"
-                self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
-                self.autorecon_leftover_scan.send_line(f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}")
+        # === Stage 1 Task ===
+        scan_tasks = [
+            {
+                "name": "Stage 1 hosts",
+                "done_file": autorecon_mass_done,
+                "session": getattr(self, "autorecon_mass_scan", None),
+                "total_hosts": self.total_masscan_hosts,
+                "get_finished": lambda: self.autorecon_mass_scan.check_finished_scans() if self.autorecon_mass_scan else [],
+            }
+        ]
 
-        with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts...") as status:
-            finished_ips = []
-            while not autorecon_mass_scan_done.exists():
-                new_finished_ips = self.autorecon_mass_scan.check_finished_scans()
-                finished_ips.extend(new_finished_ips)
-                if len(new_finished_ips) > 0:
-                    status.update(f"[bold yellow] Waiting for AutoRecon to complete for Stage 1 hosts... ({len(finished_ips)}/{self.total_masscan_hosts} hosts completed during this run!)")
-                time.sleep(10)
+        finished = {task["name"]: [] for task in scan_tasks}
 
-        if self.has_leftovers:
-            with self.console().status(f"[bold yellow] Waiting for AutoRecon to complete for leftover hosts..."):
-                while not autorecon_leftover_done.exists():
-                    time.sleep(10)
+        def render_table():
+            """Generate a rich Table showing progress for all tasks."""
+            table = Table(title="AutoRecon Progress", box=box.ROUNDED, expand=True)
+            table.add_column("Stage", style="cyan", no_wrap=True)
+            table.add_column("Completed", justify="right", style="green")
+            table.add_column("Total", justify="right", style="magenta")
+            table.add_column("Status", style="yellow")
+            table.add_column("Notes", style="dim")
+
+            for task in scan_tasks:
+                name = task["name"]
+                total = str(task["total_hosts"]) if task["total_hosts"] else "-"
+                completed = str(len(finished[name]))
+                status = "✓" if task["done_file"].exists() else "⏳"
+                note = ""
+                if name == "Leftover hosts" and not leftover_scan_started:
+                    note = "Waiting to start"
+                elif name == "Stage 1 hosts" and not autorecon_mass_done.exists() and not leftover_discovery_done:
+                    note = "Running / Waiting for leftovers"
+                table.add_row(name, completed, total, status, note)
+            if self.has_leftovers and not leftover_discovery_done:
+                table.add_row("Leftover discovery", "-", "-", "⏳", "Waiting for leftover host discovery...")
+            return table
+
+        # === Unified Monitoring Loop with Live Table ===
+        with Live(render_table(), refresh_per_second=1, console=self.console()) as live:
+            all_done = False
+            while not all_done:
+                all_done = True
+
+                # Update Stage 1 (and later leftover) finished hosts
+                for task in scan_tasks:
+                    if task["done_file"].exists():
+                        continue
+                    all_done = False
+                    new_finished = task["get_finished"]()
+                    finished[task["name"]].extend(new_finished)
+
+                # Handle leftover discovery
+                if self.has_leftovers and not leftover_discovery_done:
+                    if leftover_file.exists():
+                        leftover_discovery_done = True
+                        self.mark_stage_complete(2)
+                        self.info(f"[*] Leftover host discovery completed: {leftover_file}")
+                    else:
+                        all_done = False
+
+                # Start leftover scan if ready
+                if self.has_leftovers and leftover_discovery_done and not leftover_scan_started:
+                    if not autorecon_leftover_done.exists():
+                        self.info(f"[*] Starting leftover AutoRecon scan.")
+                        self.autorecon_leftover_scan = TmuxSession(tmux_session_leftover)
+                        cmd = f"{VENV_PYTHON_PATH} {AUTO_RECON_RUNNER_PATH} --project {self.project_folder} --hosts {leftover_file}"
+                        self.autorecon_leftover_scan.send_line(cmd)
+                        leftover_scan_started = True
+
+                        # Add leftover task dynamically
+                        scan_tasks.append({
+                            "name": "Leftover hosts",
+                            "done_file": autorecon_leftover_done,
+                            "session": self.autorecon_leftover_scan,
+                            "total_hosts": None,
+                            "get_finished": lambda: self.autorecon_leftover_scan.check_finished_scans() if self.autorecon_leftover_scan else [],
+                        })
+                        finished["Leftover hosts"] = []
+
+                live.update(render_table())
+                time.sleep(1)
 
         self.mark_stage_complete(3)
+        self.info("[+] Stage 3 complete.")
+
 
 

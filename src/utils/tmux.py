@@ -5,81 +5,80 @@ import re
 class TmuxSession:
     def __init__(self, session_name: str):
         self.session_name = session_name
-        self._seen_ips = set()  # keep track of IPs already returned
-        self._finished_re = re.compile(
-            r"\[\*\]\s+Finished scanning target\s+(\d{1,3}(?:\.\d{1,3}){3})\s+in\s+"
-        )
-
-        # Check if session exists
+        self._seen_ips = set()      # IPs already returned
+        self._printed_lines = set() # Lines already printed for debug
+        self._partial = ""          # Partial line buffer
+        # Check or create tmux session
         result = subprocess.run(
             ["tmux", "has-session", "-t", self.session_name],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE
         )
-
         if result.returncode != 0:
-            # Create session if it doesn't exist
             subprocess.run(["tmux", "new-session", "-d", "-s", self.session_name])
 
-        # Start an interactive tmux attach using pexpect
-        self.child = pexpect.spawn(f"tmux attach-session -t {self.session_name}", encoding="utf-8")
+        self.child = pexpect.spawn(
+            f"tmux attach-session -t {self.session_name}",
+            encoding="utf-8",
+            codec_errors="replace"
+        )
 
     def send_line(self, line: str):
-        """Send a command line into the tmux session."""
         subprocess.run(["tmux", "send-keys", "-t", self.session_name, line, "C-m"])
 
-    def recv_line(self, timeout=5):
-        """Receive a single line from the tmux session."""
-        try:
-            self.child.expect("\r\n", timeout=timeout)
-            return self.child.before.strip()
-        except pexpect.TIMEOUT:
-            return None
-
-    def recv_until(self, pattern: str, timeout=10):
-        """Receive output from tmux until the given pattern is matched."""
-        try:
-            self.child.expect(pattern, timeout=timeout)
-            return self.child.before + self.child.after
-        except pexpect.TIMEOUT:
-            return None
-
-    def kill(self):
-        """Send Ctrl-C multiple times to stop running processes."""
-        self.send_ctrl_c(3)
-
-    def interactive(self):
-        """Switch to fully interactive mode with the tmux session."""
-        self.child.interact()
-
     def send_ctrl_c(self, count=1):
-        """Send Ctrl-C multiple times to the session."""
         for _ in range(count):
             subprocess.run(["tmux", "send-keys", "-t", self.session_name, "C-c"])
 
+    def kill(self):
+        self.send_ctrl_c(3)
 
-    def recv_output(self, timeout=1):
-        """Grab any available output since last read."""
-        try:
-            self.child.expect(r".+", timeout=timeout)
-            return self.child.before + self.child.after
-        except (pexpect.TIMEOUT, pexpect.EOF):
-            return ""
+    def interactive(self):
+        self.child.interact()
 
-    def check_finished_scans(self, timeout=1):
+    # --- Core robust line reader ---
+    def recv_lines(self, timeout=0.2):
         """
-        Check recent tmux output for finished scan lines.
-        Returns a list of *new* IPs that have not been returned before.
+        Reads available output from tmux and returns a list of **complete lines**.
+        Partial lines are kept in a buffer for next call.
         """
-        output = self.recv_output(timeout=timeout)
+        lines = []
+
+        while True:
+            try:
+                chunk = self.child.read_nonblocking(size=4096, timeout=timeout)
+                if not chunk:
+                    break
+                self._partial += chunk
+                while "\n" in self._partial:
+                    line, self._partial = self._partial.split("\n", 1)
+                    line = line.rstrip("\r")
+                    lines.append(line)
+            except pexpect.TIMEOUT:
+                break
+            except pexpect.EOF:
+                # Flush any remaining partial line
+                if self._partial:
+                    lines.append(self._partial)
+                    self._partial = ""
+                break
+
+        return lines
+
+    # --- Check finished scans and debug printing ---
+    def check_finished_scans(self, timeout=0.2):
+        """
+        Returns a list of new IPs that have not been seen yet.
+        Prints any line containing 'finished', 'scanning', or 'target' exactly once.
+        """
         new_ips = []
+        lines = self.recv_lines(timeout=timeout)
 
-        for line in output.splitlines():
-            match = self._finished_re.search(line)
-            if match:
-                ip = match.group(1)
+        for line in lines:
+            # Extract IPs
+            if "Finished scanning target" in line:
+                ip = line.split("Finished scanning target")[1].split("in")[0].strip()
                 if ip not in self._seen_ips:
                     self._seen_ips.add(ip)
                     new_ips.append(ip)
-
         return new_ips
